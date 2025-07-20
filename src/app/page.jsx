@@ -26,8 +26,15 @@ export default function EditorPage() {
 
     const handleResize = () => {
       setWindowWidth(window.innerWidth);
-      setIsSidebarOpen(window.innerWidth > 768);
+      //setIsSidebarOpen(window.innerWidth > 768);
     };
+    
+    useEffect(() => {
+      // Open sidebar automatically on desktop
+      if (windowWidth > 768) {
+        setIsSidebarOpen(true);
+      }
+    }, [windowWidth]);
 
     window.addEventListener('resize', handleResize);
     return () => window.removeEventListener('resize', handleResize);
@@ -604,16 +611,16 @@ function CodeEditor({ noteId }) {
           <motion.button
             onClick={toggleTheme}
             className={`relative w-14 h-7 rounded-full flex items-center px-1 ${theme === 'dark'
-                ? 'bg-blue-600'
-                : 'bg-blue-200'
+              ? 'bg-blue-600'
+              : 'bg-blue-200'
               }`}
             whileTap={{ scale: 0.95 }}
             transition={{ type: "spring", stiffness: 400, damping: 17 }}
           >
             <motion.div
               className={`absolute w-5 h-5 rounded-full flex items-center justify-center ${theme === 'dark'
-                  ? 'bg-white text-blue-600'
-                  : 'bg-white text-yellow-500'
+                ? 'bg-white text-blue-600'
+                : 'bg-white text-yellow-500'
                 }`}
               initial={false}
               animate={{
@@ -636,12 +643,12 @@ function CodeEditor({ noteId }) {
           <motion.button
             onClick={handleCopy}
             className={`px-3 py-1.5 rounded-lg font-medium text-sm flex items-center gap-1 ${theme === 'dark'
-                ? copied
-                  ? 'bg-green-600 text-white'
-                  : 'bg-gray-700 text-gray-200 hover:bg-gray-600'
-                : copied
-                  ? 'bg-green-200 text-green-800'
-                  : 'bg-gray-200 text-gray-800 hover:bg-gray-300'
+              ? copied
+                ? 'bg-green-600 text-white'
+                : 'bg-gray-700 text-gray-200 hover:bg-gray-600'
+              : copied
+                ? 'bg-green-200 text-green-800'
+                : 'bg-gray-200 text-gray-800 hover:bg-gray-300'
               }`}
             whileTap={{ scale: 0.95 }}
             transition={{ type: "spring", stiffness: 400, damping: 17 }}
