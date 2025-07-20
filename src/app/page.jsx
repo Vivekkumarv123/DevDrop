@@ -3,8 +3,8 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { database } from '../lib/firebase';
 import { ref, onValue, push, set, remove, update, off } from 'firebase/database';
-import { 
-  Plus, Edit3, Trash2, Check, X, Search, Loader2, 
+import {
+  Plus, Edit3, Trash2, Check, X, Search, Loader2,
   Copy, Code2, Wifi, WifiOff, Sparkles, Menu, ChevronLeft,
   Sun, Moon
 } from 'lucide-react';
@@ -23,7 +23,7 @@ export default function EditorPage() {
   useEffect(() => {
     // Set initial width and handle resize
     setWindowWidth(window.innerWidth);
-    
+
     const handleResize = () => {
       setWindowWidth(window.innerWidth);
       setIsSidebarOpen(window.innerWidth > 768);
@@ -41,7 +41,7 @@ export default function EditorPage() {
     <div className="flex flex-col md:flex-row h-screen bg-[#1e1e1e] overflow-hidden">
       {/* Mobile Header */}
       <div className="md:hidden flex items-center justify-between p-3 bg-[#252526] border-b border-gray-700">
-        <button 
+        <button
           onClick={toggleSidebar}
           className="p-1.5 rounded-md text-gray-300 hover:bg-gray-700 transition-colors"
         >
@@ -54,7 +54,7 @@ export default function EditorPage() {
       {/* Sidebar */}
       <AnimatePresence>
         {(isSidebarOpen || windowWidth > 768) && (
-          <motion.aside 
+          <motion.aside
             initial={{ x: windowWidth <= 768 ? -300 : 0 }}
             animate={{ x: 0 }}
             exit={{ x: windowWidth <= 768 ? -300 : 0 }}
@@ -66,18 +66,20 @@ export default function EditorPage() {
                 <Code2 className="w-5 h-5 text-blue-400" />
                 Codes
               </h2>
-              <button 
+              <button
                 onClick={toggleSidebar}
                 className="md:hidden p-1 rounded-md text-gray-400 hover:bg-gray-700"
               >
                 <ChevronLeft className="w-5 h-5" />
               </button>
             </div>
-            <NoteList 
-              onSelect={(id) => {
+            <NoteList
+              onSelect={(id, closeSidebar = true) => {
                 setSelectedNoteId(id);
-                if (windowWidth <= 768) setIsSidebarOpen(false);
-              }} 
+                if (window.innerWidth <= 768 && closeSidebar) {
+                  setIsSidebarOpen(false);
+                }
+              }}
             />
           </motion.aside>
         )}
@@ -97,7 +99,7 @@ export default function EditorPage() {
                 <p className="text-gray-400 mb-5 text-sm">
                   Select or create a note from the sidebar to start editing.
                 </p>
-                <button 
+                <button
                   onClick={toggleSidebar}
                   className="bg-blue-600 md:hidden hover:bg-blue-700 text-white px-4 py-2 rounded-lg flex items-center justify-center gap-2 mx-auto text-sm"
                 >
@@ -183,7 +185,7 @@ function NoteList({ onSelect }) {
       await set(newNoteRef, { name: trimmedName, content: '', createdAt: now, lastModified: now });
       setNewNoteName('');
       // Select the new note after creation
-      onSelect(newNoteRef.key);
+      onSelect(newNoteRef.key, false);
       setSelectedNoteId(newNoteRef.key);
     } catch (err) {
       setError('Failed to create code.');
@@ -237,7 +239,7 @@ function NoteList({ onSelect }) {
 
   const handleNoteSelect = useCallback((noteId) => {
     setSelectedNoteId(noteId);
-    onSelect(noteId);
+    onSelect(noteId, true);
   }, [onSelect]);
 
   const handleKeyPress = useCallback((e, action, ...args) => {
@@ -351,8 +353,8 @@ function NoteList({ onSelect }) {
                     <div className="text-xs text-gray-500 group-hover:text-gray-400 transition-colors">Modified {formatDate(note.lastModified)}</div>
                   </button>
                   <div className="flex gap-1">
-                    <button 
-                      onClick={() => startRenaming(note)} 
+                    <button
+                      onClick={() => startRenaming(note)}
                       className="p-2 text-gray-400 hover:text-yellow-500 hover:bg-yellow-500/10 rounded-full transition-colors"
                     >
                       <Edit3 className="w-4 h-4" />
@@ -376,7 +378,7 @@ function NoteList({ onSelect }) {
 
       {/* Error Display */}
       {error && (
-        <motion.div 
+        <motion.div
           initial={{ opacity: 0, y: 10 }}
           animate={{ opacity: 1, y: 0 }}
           className="mt-4 p-3 text-sm text-red-400 bg-red-900/30 rounded-lg border border-red-700/50 text-center"
@@ -446,15 +448,15 @@ function CodeEditor({ noteId }) {
 
   // Refs to track state without recreating effects
   const isRemoteUpdateRef = useRef(isRemoteUpdate);
-  const updateStatsRef = useRef(() => {});
-  const setIsSavingRef = useRef(() => {});
-  const setIsConnectedRef = useRef(() => {});
-  
+  const updateStatsRef = useRef(() => { });
+  const setIsSavingRef = useRef(() => { });
+  const setIsConnectedRef = useRef(() => { });
+
   // Keep refs updated
   useEffect(() => {
     isRemoteUpdateRef.current = isRemoteUpdate;
   }, [isRemoteUpdate]);
-  
+
   useEffect(() => {
     updateStatsRef.current = (doc) => {
       const content = doc.toString();
@@ -462,7 +464,7 @@ function CodeEditor({ noteId }) {
       setCharCount(content.length);
     };
   }, []);
-  
+
   useEffect(() => {
     setIsSavingRef.current = setIsSaving;
     setIsConnectedRef.current = setIsConnected;
@@ -578,7 +580,7 @@ function CodeEditor({ noteId }) {
             </p>
           </div>
         </div>
-        
+
         <div className="flex flex-wrap gap-2 items-center">
           <div className="flex items-center gap-1 text-xs">
             {isConnected ? (
@@ -597,24 +599,22 @@ function CodeEditor({ noteId }) {
               </>
             )}
           </div>
-          
+
           {/* Theme Toggle */}
           <motion.button
             onClick={toggleTheme}
-            className={`relative w-14 h-7 rounded-full flex items-center px-1 ${
-              theme === 'dark' 
-                ? 'bg-blue-600' 
+            className={`relative w-14 h-7 rounded-full flex items-center px-1 ${theme === 'dark'
+                ? 'bg-blue-600'
                 : 'bg-blue-200'
-            }`}
+              }`}
             whileTap={{ scale: 0.95 }}
             transition={{ type: "spring", stiffness: 400, damping: 17 }}
           >
             <motion.div
-              className={`absolute w-5 h-5 rounded-full flex items-center justify-center ${
-                theme === 'dark' 
-                  ? 'bg-white text-blue-600' 
+              className={`absolute w-5 h-5 rounded-full flex items-center justify-center ${theme === 'dark'
+                  ? 'bg-white text-blue-600'
                   : 'bg-white text-yellow-500'
-              }`}
+                }`}
               initial={false}
               animate={{
                 x: theme === 'dark' ? 28 : 0,
@@ -632,18 +632,17 @@ function CodeEditor({ noteId }) {
               )}
             </motion.div>
           </motion.button>
-          
+
           <motion.button
             onClick={handleCopy}
-            className={`px-3 py-1.5 rounded-lg font-medium text-sm flex items-center gap-1 ${
-              theme === 'dark' 
-                ? copied 
-                  ? 'bg-green-600 text-white' 
-                  : 'bg-gray-700 text-gray-200 hover:bg-gray-600' 
-                : copied 
-                  ? 'bg-green-200 text-green-800' 
+            className={`px-3 py-1.5 rounded-lg font-medium text-sm flex items-center gap-1 ${theme === 'dark'
+                ? copied
+                  ? 'bg-green-600 text-white'
+                  : 'bg-gray-700 text-gray-200 hover:bg-gray-600'
+                : copied
+                  ? 'bg-green-200 text-green-800'
                   : 'bg-gray-200 text-gray-800 hover:bg-gray-300'
-            }`}
+              }`}
             whileTap={{ scale: 0.95 }}
             transition={{ type: "spring", stiffness: 400, damping: 17 }}
           >
@@ -673,7 +672,7 @@ function CodeEditor({ noteId }) {
             </div>
           )}
         </div>
-        
+
         <div className={`flex items-center gap-2 text-xs transition-colors duration-500 ${theme === 'dark' ? 'text-gray-500' : 'text-gray-400'}`}>
           <Sparkles className={`transition-colors duration-500 ${theme === 'dark' ? 'text-yellow-400' : 'text-yellow-500'}`} size={14} />
           Developed by <span className={`transition-colors duration-500 ${theme === 'dark' ? 'text-blue-300 font-medium' : 'text-blue-600 font-medium'}`}>Vivek Kumar Verma</span>
