@@ -80,12 +80,6 @@ Deploy instantly using [Vercel](https://vercel.com/) for best performance and sc
 
 ---
 
-## 📸 Screenshots
-
-> _Add screenshots of your editor and note list here for a professional GitHub presentation._
-
----
-
 ## 👤 About the Developer
 
 Built with ❤️ by Vivek Kumar Verma. Connect on [GitHub](https://github.com/Vivekkumarv123) | [LinkedIn](https://linkedin.com/in/vivek-kumar-verma-programmer-information-technology)
@@ -130,3 +124,5 @@ git push
 ```
 
 Your GitHub project will now look professional and clear for sharing, showcasing, and deploying.
+
+update and redesign readme.md
