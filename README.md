@@ -21,7 +21,7 @@ DevDrop is a modern, collaborative code editor built with Next.js, Firebase, and
 ### 1. Clone the Repository
 
 ```bash
-git clone https://github.com/yourusername/devdrop.git
+git clone https://github.com/Vivekkumarv123/DevDrop.git
 cd devdrop
 ```
 
@@ -124,5 +124,3 @@ git push
 ```
 
 Your GitHub project will now look professional and clear for sharing, showcasing, and deploying.
-
-update and redesign readme.md
