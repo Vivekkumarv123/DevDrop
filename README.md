@@ -88,7 +88,7 @@ Deploy instantly using [Vercel](https://vercel.com/) for best performance and sc
 
 ## 👤 About the Developer
 
-Built with ❤️ by Shams Ali. Connect on [GitHub](https://github.com/Shaikhshams17) | [LinkedIn](https://linkedin.com/in/shamsali)
+Built with ❤️ by Vivek Kumar Verma. Connect on [GitHub](https://github.com/Vivekkumarv123) | [LinkedIn](https://linkedin.com/in/vivek-kumar-verma-programmer-information-technology)
 
 ---
 
