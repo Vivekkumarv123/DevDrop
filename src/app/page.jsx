@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { database } from '../lib/firebase';
 import { ref, onValue, push, set, remove, update, off } from 'firebase/database';
 import {
@@ -14,6 +14,8 @@ import { EditorView, keymap, lineNumbers } from '@codemirror/view';
 import { defaultKeymap, history, historyKeymap } from '@codemirror/commands';
 import { javascript } from '@codemirror/lang-javascript';
 import { oneDark } from '@codemirror/theme-one-dark';
+import { githubLight } from '@uiw/codemirror-theme-github';
+
 
 export default function EditorPage() {
   const [selectedNoteId, setSelectedNoteId] = useState(null);
@@ -21,28 +23,17 @@ export default function EditorPage() {
   const [windowWidth, setWindowWidth] = useState(0);
 
   useEffect(() => {
-    // Set initial width and handle resize
     setWindowWidth(window.innerWidth);
-
-    const handleResize = () => {
-      setWindowWidth(window.innerWidth);
-      //setIsSidebarOpen(window.innerWidth > 768);
-    };
-
+    const handleResize = () => setWindowWidth(window.innerWidth);
     window.addEventListener('resize', handleResize);
     return () => window.removeEventListener('resize', handleResize);
   }, []);
 
-  const toggleSidebar = () => {
-    setIsSidebarOpen(!isSidebarOpen);
-  };
+  const toggleSidebar = () => setIsSidebarOpen(!isSidebarOpen);
 
   useEffect(() => {
-  // Open sidebar automatically on desktop
-  if (windowWidth > 768) {
-    setIsSidebarOpen(true);
-  }
-}, [windowWidth]);
+    if (windowWidth > 768) setIsSidebarOpen(true);
+  }, [windowWidth]);
 
   return (
     <div className="flex flex-col md:flex-row h-screen bg-[#1e1e1e] overflow-hidden">
@@ -125,7 +116,7 @@ export default function EditorPage() {
 function NoteList({ onSelect }) {
   const [notes, setNotes] = useState([]);
   const [newNoteName, setNewNoteName] = useState('');
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(false);
   const [editingNoteId, setEditingNoteId] = useState(null);
   const [editedName, setEditedName] = useState('');
   const [searchTerm, setSearchTerm] = useState('');
@@ -135,9 +126,9 @@ function NoteList({ onSelect }) {
   const [deleteModalOpen, setDeleteModalOpen] = useState(false);
   const [noteToDelete, setNoteToDelete] = useState(null);
 
-  const filteredNotes = notes.filter(note =>
-    note.name.toLowerCase().includes(searchTerm.toLowerCase())
-  );
+  const filteredNotes = useMemo(() =>
+    notes.filter(note => note.name.toLowerCase().includes(searchTerm.toLowerCase()))
+    , [notes, searchTerm]);
 
   useEffect(() => {
     if (error) {
@@ -147,22 +138,18 @@ function NoteList({ onSelect }) {
   }, [error]);
 
   useEffect(() => {
+    setLoading(true);
     const notesRef = ref(database, 'notes');
     const unsubscribe = onValue(
       notesRef,
       (snapshot) => {
         const data = snapshot.val() || {};
-        const updates = {};
-        const noteList = Object.keys(data).map((key) => {
-          if (!data[key]?.name) updates[key] = { ...data[key], name: key };
-          return {
-            id: key,
-            name: data[key]?.name ?? key,
-            createdAt: data[key]?.createdAt || Date.now(),
-            lastModified: data[key]?.lastModified || Date.now(),
-          };
-        });
-        if (Object.keys(updates).length > 0) update(notesRef, updates);
+        const noteList = Object.keys(data).map((key) => ({
+          id: key,
+          name: data[key]?.name || key,
+          createdAt: data[key]?.createdAt || Date.now(),
+          lastModified: data[key]?.lastModified || Date.now(),
+        }));
         noteList.sort((a, b) => b.lastModified - a.lastModified);
         setNotes(noteList);
         setLoading(false);
@@ -191,7 +178,6 @@ function NoteList({ onSelect }) {
       const now = Date.now();
       await set(newNoteRef, { name: trimmedName, content: '', createdAt: now, lastModified: now });
       setNewNoteName('');
-      // Select the new note after creation
       onSelect(newNoteRef.key, false);
       setSelectedNoteId(newNoteRef.key);
     } catch (err) {
@@ -203,7 +189,7 @@ function NoteList({ onSelect }) {
   const deleteNote = useCallback(async (noteId) => {
     try {
       await remove(ref(database, `notes/${noteId}`));
-      if (onSelect && selectedNoteId === noteId) {
+      if (selectedNoteId === noteId) {
         onSelect(null);
         setSelectedNoteId(null);
       }
@@ -293,8 +279,9 @@ function NoteList({ onSelect }) {
         <button
           onClick={createNote}
           disabled={isCreating || !newNoteName.trim()}
-          className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg flex items-center justify-center gap-2 transition-colors disabled:bg-gray-600"
+          className="bg-blue-600 cursor-pointer disabled:cursor-not-allowed hover:bg-blue-700 text-white px-4 py-2 rounded-lg flex items-center justify-center gap-2 transition-colors disabled:bg-gray-600"
         >
+
           {isCreating ? (
             <>
               <Loader2 className="w-4 h-4 animate-spin" />
@@ -302,7 +289,7 @@ function NoteList({ onSelect }) {
             </>
           ) : (
             <>
-              <Plus className="w-4 h-4" />
+              <Plus className="w-4  h-4" />
               <span>Add</span>
             </>
           )}
@@ -321,7 +308,8 @@ function NoteList({ onSelect }) {
       </div>
 
       {/* Notes List */}
-      <div className="space-y-2 max-h-[60vh] overflow-y-auto">
+      <div className="space-y-2 max-h-[70vh] overflow-y-auto [&::-webkit-scrollbar]:hidden scrollbar-none">
+
         {loading ? (
           <div className="text-center py-8 text-gray-500">Loading...</div>
         ) : filteredNotes.length === 0 ? (
@@ -332,10 +320,10 @@ function NoteList({ onSelect }) {
           filteredNotes.map(note => (
             <div
               key={note.id}
-              className={`p-4 rounded-lg flex justify-between items-center transition ${selectedNoteId === note.id ? 'bg-blue-900/20 border border-blue-500/50' : 'bg-[#2d2d2d] hover:bg-[#3a3a3a]'}`}
+              className={`p-4 rounded-lg flex  justify-between items-center transition ${selectedNoteId === note.id ? 'bg-blue-900/20 border border-blue-500/50' : 'bg-[#2d2d2d] hover:bg-[#3a3a3a]'}`}
             >
               {editingNoteId === note.id ? (
-                <div className="flex-1 flex gap-2">
+                <div className="flex-1  flex gap-2">
                   <input
                     value={editedName}
                     onChange={(e) => setEditedName(e.target.value)}
@@ -343,10 +331,10 @@ function NoteList({ onSelect }) {
                     className="flex-1 px-1 py-1 bg-[#1e1e1e] border border-gray-700 rounded text-gray-200"
                     autoFocus
                   />
-                  <button onClick={() => saveRename(note.id)} className="text-green-500 p-1 hover:bg-green-500/10 rounded">
+                  <button onClick={() => saveRename(note.id)} className="text-green-500 cursor-pointer p-1 hover:bg-green-500/10 rounded">
                     <Check className="w-5 h-5" />
                   </button>
-                  <button onClick={cancelRenaming} className="text-gray-400 p-1 hover:bg-gray-500/10 rounded">
+                  <button onClick={cancelRenaming} className="text-gray-400 p-1 cursor-pointer hover:bg-gray-500/10 rounded">
                     <X className="w-5 h-5" />
                   </button>
                 </div>
@@ -354,7 +342,7 @@ function NoteList({ onSelect }) {
                 <>
                   <button
                     onClick={() => handleNoteSelect(note.id)}
-                    className="flex-1 text-left group"
+                    className="flex-1 cursor-pointer text-left group"
                   >
                     <div className="font-medium text-gray-200 group-hover:text-white transition-colors">{note.name}</div>
                     <div className="text-xs text-gray-500 group-hover:text-gray-400 transition-colors">Modified {formatDate(note.lastModified)}</div>
@@ -362,7 +350,7 @@ function NoteList({ onSelect }) {
                   <div className="flex gap-1">
                     <button
                       onClick={() => startRenaming(note)}
-                      className="p-2 text-gray-400 hover:text-yellow-500 hover:bg-yellow-500/10 rounded-full transition-colors"
+                      className="p-2 text-gray-400 cursor-pointer hover:text-yellow-500 hover:bg-yellow-500/10 rounded-full transition-colors"
                     >
                       <Edit3 className="w-4 h-4" />
                     </button>
@@ -371,7 +359,7 @@ function NoteList({ onSelect }) {
                         setNoteToDelete(note);
                         setDeleteModalOpen(true);
                       }}
-                      className="p-2 text-gray-400 hover:text-red-500 hover:bg-red-500/10 rounded-full transition-colors"
+                      className="p-2 text-gray-400 cursor-pointer  hover:text-red-500 hover:bg-red-500/10 rounded-full transition-colors"
                     >
                       <Trash2 className="w-4 h-4" />
                     </button>
@@ -419,7 +407,7 @@ function NoteList({ onSelect }) {
               <div className="flex justify-end gap-3">
                 <button
                   onClick={() => setDeleteModalOpen(false)}
-                  className="px-4 py-2 rounded-lg text-gray-300 hover:bg-gray-700 transition-colors"
+                  className="px-4 py-2 rounded-lg cursor-pointer text-gray-300 hover:bg-gray-700 transition-colors"
                 >
                   Cancel
                 </button>
@@ -428,7 +416,7 @@ function NoteList({ onSelect }) {
                     deleteNote(noteToDelete.id);
                     setDeleteModalOpen(false);
                   }}
-                  className="px-4 py-2 rounded-lg bg-red-600 text-white hover:bg-red-700 transition-colors"
+                  className="px-4 py-2 rounded-lg cursor-pointer bg-red-600 text-white hover:bg-red-700 transition-colors"
                 >
                   Delete
                 </button>
@@ -451,33 +439,96 @@ function CodeEditor({ noteId }) {
   const [lineCount, setLineCount] = useState(1);
   const [charCount, setCharCount] = useState(0);
   const [theme, setTheme] = useState('dark');
-  const [currentContent, setCurrentContent] = useState('');
 
-  // Refs to track state without recreating effects
-  const isRemoteUpdateRef = useRef(isRemoteUpdate);
-  const updateStatsRef = useRef(() => { });
-  const setIsSavingRef = useRef(() => { });
-  const setIsConnectedRef = useRef(() => { });
+  const noteRef = useMemo(() => ref(database, `notes/${noteId}`), [noteId]);
 
-  // Keep refs updated
+  const editorExtensions = useMemo(() => [
+    lineNumbers(),
+    history(),
+    javascript(),
+    keymap.of([...defaultKeymap, ...historyKeymap]),
+    theme === 'dark' ? oneDark : githubLight,
+    EditorView.updateListener.of((updateEvent) => {
+      if (updateEvent.docChanged) {
+        const content = updateEvent.state.doc.toString();
+        setLineCount(updateEvent.state.doc.lines);
+        setCharCount(content.length);
+
+        if (!isRemoteUpdate) {
+          setIsSaving(true);
+          update(noteRef, { content, lastModified: Date.now() })
+            .then(() => setIsConnected(true))
+            .catch(() => setIsConnected(false))
+            .finally(() => setTimeout(() => setIsSaving(false), 300));
+        }
+      }
+    }),
+    EditorView.theme({
+      "&": { height: "100%" },
+      ".cm-scroller": {
+        overflow: "auto",
+        maxHeight: "calc(100vh - 100px)",
+        minHeight: "32lh"
+      },
+      ".cm-content": {
+        minHeight: "32lh",
+        paddingBottom: "100px"
+      }
+    })
+  ], [theme, noteRef, isRemoteUpdate]);
+
   useEffect(() => {
-    isRemoteUpdateRef.current = isRemoteUpdate;
-  }, [isRemoteUpdate]);
+    if (!editorContainerRef.current || !noteId) return;
 
-  useEffect(() => {
-    updateStatsRef.current = (doc) => {
-      const content = doc.toString();
-      setLineCount(doc.lines);
-      setCharCount(content.length);
+    // Destroy previous editor instance
+    if (viewRef.current) {
+      viewRef.current.destroy();
+    }
+
+    // Create new editor state
+    const state = EditorState.create({
+      doc: '',
+      extensions: editorExtensions
+    });
+
+    // Create new editor view
+    const view = new EditorView({
+      state,
+      parent: editorContainerRef.current
+    });
+
+    viewRef.current = view;
+
+    // Firebase listener for real-time updates
+    const unsubscribe = onValue(
+      noteRef,
+      (snapshot) => {
+        setIsConnected(true);
+        const data = snapshot.val();
+        const content = data?.content || '';
+
+        if (view.state.doc.toString() !== content) {
+          setIsRemoteUpdate(true);
+          view.dispatch({
+            changes: { from: 0, to: view.state.doc.length, insert: content }
+          });
+          setLineCount(view.state.doc.lines);
+          setCharCount(content.length);
+          setIsRemoteUpdate(false);
+        }
+      },
+      (error) => {
+        setIsConnected(false);
+        console.error('Firebase connection error:', error);
+      }
+    );
+
+    return () => {
+      view.destroy();
+      unsubscribe();
     };
-  }, []);
+  }, [noteId, theme, editorExtensions, noteRef]);
 
-  useEffect(() => {
-    setIsSavingRef.current = setIsSaving;
-    setIsConnectedRef.current = setIsConnected;
-  }, []);
-
-  // Smooth theme toggle
   const toggleTheme = useCallback(() => {
     setTheme(prev => prev === 'dark' ? 'light' : 'dark');
   }, []);
@@ -492,85 +543,6 @@ function CodeEditor({ noteId }) {
       console.error('Copy failed:', err);
     }
   }, []);
-
-  // Initialize editor
-  const initEditor = useCallback(() => {
-    if (!editorContainerRef.current || !noteId) return;
-
-    // Clear previous editor
-    if (viewRef.current) {
-      setCurrentContent(viewRef.current.state.doc.toString());
-      viewRef.current.destroy();
-    }
-
-    const noteRef = ref(database, `notes/${noteId}`);
-
-    // Create state with current content
-    const state = EditorState.create({
-      doc: currentContent,
-      extensions: [
-        lineNumbers(),
-        history(),
-        javascript(),
-        theme === 'dark' ? oneDark : [],
-        keymap.of([...defaultKeymap, ...historyKeymap]),
-        EditorView.updateListener.of((updateEvent) => {
-          if (updateEvent.docChanged) {
-            updateStatsRef.current(updateEvent.state.doc);
-            if (!isRemoteUpdateRef.current) {
-              setIsSavingRef.current(true);
-              const currentCode = updateEvent.state.doc.toString();
-              update(noteRef, { content: currentCode }).finally(() =>
-                setTimeout(() => setIsSavingRef.current(false), 300)
-              );
-            }
-          }
-        }),
-      ],
-    });
-
-    // Create new editor view
-    const view = new EditorView({
-      state,
-      parent: editorContainerRef.current,
-    });
-
-    viewRef.current = view;
-
-    // Firebase listener
-    const unsubscribe = onValue(
-      noteRef,
-      (snapshot) => {
-        setIsConnectedRef.current(true);
-        const data = snapshot.val();
-        const content = data?.content || '';
-        if (view.state.doc.toString() !== content) {
-          isRemoteUpdateRef.current = true;
-          view.dispatch({
-            changes: { from: 0, to: view.state.doc.length, insert: content },
-          });
-          updateStatsRef.current(view.state.doc);
-          isRemoteUpdateRef.current = false;
-        }
-      },
-      (error) => {
-        setIsConnectedRef.current(false);
-        console.error('Firebase connection error:', error);
-      }
-    );
-
-    return () => {
-      view.destroy();
-      unsubscribe();
-      off(noteRef);
-    };
-  }, [noteId, theme, currentContent]);
-
-  // Initialize editor on mount and theme change
-  useEffect(() => {
-    const cleanup = initEditor();
-    return cleanup;
-  }, [initEditor]);
 
   return (
     <div className={`flex flex-col h-full transition-colors duration-500 ease-in-out ${theme === 'dark' ? 'bg-[#1e1e1e]' : 'bg-[#f0f4f8]'}`}>
@@ -611,16 +583,16 @@ function CodeEditor({ noteId }) {
           <motion.button
             onClick={toggleTheme}
             className={`relative w-14 h-7 rounded-full flex items-center px-1 ${theme === 'dark'
-                ? 'bg-blue-600'
-                : 'bg-blue-200'
+              ? 'bg-blue-600'
+              : 'bg-blue-200'
               }`}
             whileTap={{ scale: 0.95 }}
             transition={{ type: "spring", stiffness: 400, damping: 17 }}
           >
             <motion.div
               className={`absolute w-5 h-5 rounded-full flex items-center justify-center ${theme === 'dark'
-                  ? 'bg-white text-blue-600'
-                  : 'bg-white text-yellow-500'
+                ? 'bg-white text-blue-600'
+                : 'bg-white text-yellow-500'
                 }`}
               initial={false}
               animate={{
@@ -643,12 +615,12 @@ function CodeEditor({ noteId }) {
           <motion.button
             onClick={handleCopy}
             className={`px-3 py-1.5 rounded-lg font-medium text-sm flex items-center gap-1 ${theme === 'dark'
-                ? copied
-                  ? 'bg-green-600 text-white'
-                  : 'bg-gray-700 text-gray-200 hover:bg-gray-600'
-                : copied
-                  ? 'bg-green-200 text-green-800'
-                  : 'bg-gray-200 text-gray-800 hover:bg-gray-300'
+              ? copied
+                ? 'bg-green-600 text-white'
+                : 'bg-gray-700 text-gray-200 hover:bg-gray-600'
+              : copied
+                ? 'bg-green-200 text-green-800'
+                : 'bg-gray-200 text-gray-800 hover:bg-gray-300'
               }`}
             whileTap={{ scale: 0.95 }}
             transition={{ type: "spring", stiffness: 400, damping: 17 }}
