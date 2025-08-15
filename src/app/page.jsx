@@ -6,7 +6,7 @@ import { ref, onValue, push, set, remove, update, off } from 'firebase/database'
 import {
   Plus, Edit3, Trash2, Check, X, Search, Loader2,
   Copy, Code2, Wifi, WifiOff, Sparkles, Menu, ChevronLeft,
-  Sun, Moon
+  Sun, Moon, File, FileText, Image, FileCode, Download, Upload, FileIcon
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { EditorState } from '@codemirror/state';
@@ -130,6 +130,42 @@ function NoteList({ onSelect }) {
     notes.filter(note => note.name.toLowerCase().includes(searchTerm.toLowerCase()))
     , [notes, searchTerm]);
 
+  // 🆕 ADD THESE HELPER FUNCTIONS HERE
+  const getNoteWithFiles = useCallback(async (noteId) => {
+    return new Promise((resolve, reject) => {
+      const noteRef = ref(database, `notes/${noteId}`);
+      onValue(
+        noteRef,
+        (snapshot) => {
+          const data = snapshot.val();
+          resolve(data);
+        },
+        reject,
+        { onlyOnce: true }
+      );
+    });
+  }, []);
+
+  const deleteFilesFromCloudinary = useCallback(async (files) => {
+    if (!files || Object.keys(files).length === 0) return;
+
+    const publicIds = Object.values(files).map(file => file.id);
+
+    try {
+      const response = await fetch('/api/cloudinary/bulk-delete', {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ public_ids: publicIds })
+      });
+
+      if (!response.ok) {
+        console.warn('Failed to delete some files from Cloudinary');
+      }
+    } catch (error) {
+      console.warn('Cloudinary deletion failed:', error);
+    }
+  }, []);
+
   useEffect(() => {
     if (error) {
       const timeout = setTimeout(() => setError(''), 4000);
@@ -137,31 +173,63 @@ function NoteList({ onSelect }) {
     }
   }, [error]);
 
+
+
+  // ✅ Use the correct Firebase reference for notes list
   useEffect(() => {
-    setLoading(true);
-    const notesRef = ref(database, 'notes');
-    const unsubscribe = onValue(
-      notesRef,
-      (snapshot) => {
-        const data = snapshot.val() || {};
-        const noteList = Object.keys(data).map((key) => ({
-          id: key,
-          name: data[key]?.name || key,
-          createdAt: data[key]?.createdAt || Date.now(),
-          lastModified: data[key]?.lastModified || Date.now(),
-        }));
-        noteList.sort((a, b) => b.lastModified - a.lastModified);
-        setNotes(noteList);
-        setLoading(false);
-      },
-      (error) => {
-        setError('Failed to load codes. Please try again.');
-        setLoading(false);
-        console.error('Firebase error:', error);
-      }
-    );
-    return () => unsubscribe();
-  }, []);
+    let isMounted = true;
+    let unsubscribe = null;
+
+    const loadNotes = () => {
+      setLoading(true);
+      const notesRef = ref(database, 'notes');
+
+      unsubscribe = onValue(
+        notesRef,
+        (snapshot) => {
+          if (!isMounted) return;
+
+          const data = snapshot.val() || {};
+          const noteList = Object.entries(data).map(([key, value]) => ({
+            id: key,
+            name: value?.name || key,
+            createdAt: value?.createdAt || Date.now(),
+            lastModified: value?.lastModified || Date.now(),
+            fileCount: Object.keys(value?.files || {}).length // 🆕 ADD FILE COUNT
+          }));
+
+          noteList.sort((a, b) => b.lastModified - a.lastModified);
+
+          // Use requestAnimationFrame for smooth UI updates
+          requestAnimationFrame(() => {
+            if (isMounted) {
+              setNotes(noteList);
+              setLoading(false);
+            }
+          });
+        },
+        (error) => {
+          if (!isMounted) return;
+
+          requestAnimationFrame(() => {
+            if (isMounted) {
+              setError('Failed to load codes. Please try again.');
+              setLoading(false);
+            }
+          });
+
+          console.error('Firebase error:', error);
+        }
+      );
+    };
+
+    loadNotes();
+
+    return () => {
+      isMounted = false;
+      if (unsubscribe) unsubscribe();
+    };
+  }, []); // ✅ No dependencies needed for the main notes list
 
   const createNote = useCallback(async () => {
     const trimmedName = newNoteName.trim();
@@ -176,28 +244,47 @@ function NoteList({ onSelect }) {
     try {
       const newNoteRef = push(ref(database, 'notes'));
       const now = Date.now();
-      await set(newNoteRef, { name: trimmedName, content: '', createdAt: now, lastModified: now });
+      await set(newNoteRef, {
+        name: trimmedName,
+        content: '',
+        createdAt: now,
+        lastModified: now,
+        files: {}
+      });
       setNewNoteName('');
       onSelect(newNoteRef.key, false);
       setSelectedNoteId(newNoteRef.key);
     } catch (err) {
       setError('Failed to create code.');
       console.error(err);
-    } finally { setIsCreating(false); }
+    } finally {
+      setIsCreating(false);
+    }
   }, [newNoteName, notes, onSelect]);
 
   const deleteNote = useCallback(async (noteId) => {
     try {
+      // 1. Get note data with files before deletion
+      const noteData = await getNoteWithFiles(noteId);
+      const files = noteData?.files || {};
+
+      // 2. Delete files from Cloudinary first
+      await deleteFilesFromCloudinary(files);
+
+      // 3. Delete note from Firebase
       await remove(ref(database, `notes/${noteId}`));
+
+      // 4. Update UI state
       if (selectedNoteId === noteId) {
         onSelect(null);
         setSelectedNoteId(null);
       }
+
     } catch (err) {
       setError('Failed to delete code.');
-      console.error(err);
+      console.error('Delete note error:', err);
     }
-  }, [onSelect, selectedNoteId]);
+  }, [getNoteWithFiles, deleteFilesFromCloudinary, onSelect, selectedNoteId]);
 
   const startRenaming = useCallback((note) => {
     setEditingNoteId(note.id);
@@ -220,7 +307,10 @@ function NoteList({ onSelect }) {
       return;
     }
     try {
-      await update(ref(database, `notes/${noteId}`), { name: trimmedName, lastModified: Date.now() });
+      await update(ref(database, `notes/${noteId}`), {
+        name: trimmedName,
+        lastModified: Date.now()
+      });
       setEditingNoteId(null);
       setEditedName('');
       setError('');
@@ -345,7 +435,14 @@ function NoteList({ onSelect }) {
                     className="flex-1 cursor-pointer text-left group"
                   >
                     <div className="font-medium text-gray-200 group-hover:text-white transition-colors">{note.name}</div>
-                    <div className="text-xs text-gray-500 group-hover:text-gray-400 transition-colors">Modified {formatDate(note.lastModified)}</div>
+                    <div className="text-xs text-gray-500 group-hover:text-gray-400 transition-colors flex justify-between">
+                      <span>Modified {formatDate(note.lastModified)}</span>
+                      {note.fileCount > 0 && (
+                        <span className="text-blue-400">
+                          {note.fileCount} file{note.fileCount !== 1 ? 's' : ''}
+                        </span>
+                      )}
+                    </div>
                   </button>
                   <div className="flex gap-1">
                     <button
@@ -439,6 +536,12 @@ function CodeEditor({ noteId }) {
   const [lineCount, setLineCount] = useState(1);
   const [charCount, setCharCount] = useState(0);
   const [theme, setTheme] = useState('dark');
+  const [files, setFiles] = useState({});
+  const [isFileManagerOpen, setIsFileManagerOpen] = useState(false);
+  const [isUploading, setIsUploading] = useState(false);
+  const [fileError, setFileError] = useState('');
+  const [cloudinaryWidget, setCloudinaryWidget] = useState(null);
+  const [selectedFiles, setSelectedFiles] = useState([]);
 
   const noteRef = useMemo(() => ref(database, `notes/${noteId}`), [noteId]);
 
@@ -456,10 +559,14 @@ function CodeEditor({ noteId }) {
 
         if (!isRemoteUpdate) {
           setIsSaving(true);
-          update(noteRef, { content, lastModified: Date.now() })
-            .then(() => setIsConnected(true))
-            .catch(() => setIsConnected(false))
-            .finally(() => setTimeout(() => setIsSaving(false), 300));
+
+          // ✅ Defer Firebase update to prevent render conflicts
+          setTimeout(() => {
+            update(noteRef, { content, lastModified: Date.now() })
+              .then(() => setIsConnected(true))
+              .catch(() => setIsConnected(false))
+              .finally(() => setTimeout(() => setIsSaving(false), 300));
+          }, 0);
         }
       }
     }),
@@ -477,57 +584,193 @@ function CodeEditor({ noteId }) {
     })
   ], [theme, noteRef, isRemoteUpdate]);
 
-  useEffect(() => {
-    if (!editorContainerRef.current || !noteId) return;
+  // Key sanitization function
+  const sanitizeKey = useCallback((key) => {
+    return key.replace(/[.#$/[\]]/g, '_');
+  }, []);
 
-    // Destroy previous editor instance
-    if (viewRef.current) {
-      viewRef.current.destroy();
+  useEffect(() => {
+    setFiles({});
+    setSelectedFiles([]);
+  }, [noteId]);
+
+  useEffect(() => {
+    let isMounted = true;
+    let unsubscribe = null;
+    let view = null;
+
+    setFiles({});
+    setSelectedFiles([]);
+
+    if (editorContainerRef.current && noteId) {
+      if (viewRef.current) {
+        viewRef.current.destroy();
+      }
+
+      const state = EditorState.create({
+        doc: '',
+        extensions: editorExtensions
+      });
+
+      view = new EditorView({
+        state,
+        parent: editorContainerRef.current
+      });
+
+      viewRef.current = view;
+
+      unsubscribe = onValue(
+        noteRef,
+        (snapshot) => {
+          if (!isMounted) return;
+
+          setIsConnected(true);
+          const data = snapshot.val();
+          const content = data?.content || '';
+          const files = data?.files || {};
+
+          // Only update if mounted
+          if (isMounted) {
+            setFiles(files);
+
+            if (view.state.doc.toString() !== content) {
+              setIsRemoteUpdate(true);
+              view.dispatch({
+                changes: { from: 0, to: view.state.doc.length, insert: content }
+              });
+              setLineCount(view.state.doc.lines);
+              setCharCount(content.length);
+              setIsRemoteUpdate(false);
+            }
+          }
+        },
+        (error) => {
+          if (isMounted) {
+            setIsConnected(false);
+            console.error('Firebase connection error:', error);
+          }
+        }
+      );
     }
 
-    // Create new editor state
-    const state = EditorState.create({
-      doc: '',
-      extensions: editorExtensions
-    });
-
-    // Create new editor view
-    const view = new EditorView({
-      state,
-      parent: editorContainerRef.current
-    });
-
-    viewRef.current = view;
-
-    // Firebase listener for real-time updates
-    const unsubscribe = onValue(
-      noteRef,
-      (snapshot) => {
-        setIsConnected(true);
-        const data = snapshot.val();
-        const content = data?.content || '';
-
-        if (view.state.doc.toString() !== content) {
-          setIsRemoteUpdate(true);
-          view.dispatch({
-            changes: { from: 0, to: view.state.doc.length, insert: content }
-          });
-          setLineCount(view.state.doc.lines);
-          setCharCount(content.length);
-          setIsRemoteUpdate(false);
-        }
-      },
-      (error) => {
-        setIsConnected(false);
-        console.error('Firebase connection error:', error);
-      }
-    );
-
     return () => {
-      view.destroy();
-      unsubscribe();
+      isMounted = false;
+      if (view) view.destroy();
+      if (unsubscribe) unsubscribe();
     };
   }, [noteId, theme, editorExtensions, noteRef]);
+
+  // Initialize Cloudinary widget
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      const script = document.createElement('script');
+      script.src = 'https://upload-widget.cloudinary.com/global/all.js';
+      script.async = true;
+
+      script.onload = () => {
+        const widget = window.cloudinary.createUploadWidget(
+          {
+            cloudName: process.env.NEXT_PUBLIC_CLOUDINARY_CLOUD_NAME,
+            uploadPreset: process.env.NEXT_PUBLIC_CLOUDINARY_UPLOAD_PRESET,
+            sources: ['local', 'url'],
+            multiple: true,
+            maxFiles: 10,
+            maxFileSize: 10000000, // 10MB
+            resourceType: 'auto',
+            clientAllowedFormats: ['image', 'video', 'audio', 'pdf', 'text', 'json', 'zip'],
+            showPoweredBy: false,
+            styles: {
+              palette: {
+                window: "#1e1e1e",
+                windowBorder: "#505050",
+                tabIcon: "#ffb300",
+                menuIcons: "#ffb300",
+                textDark: "#000000",
+                textLight: "#FFFFFF",
+                link: "#ffb300",
+                action: "#ffb300",
+                inactiveTabIcon: "#B8B8B8",
+                error: "#F44235",
+                inProgress: "#2196F3",
+                complete: "#20B832",
+                sourceBg: "#2d2d2d"
+              },
+              fonts: {
+                default: {
+                  active: true
+                }
+              }
+            }
+          },
+          (error, result) => {
+            if (!error && result && result.event === "success") {
+              const originalPublicId = result.info.public_id;
+              const sanitizedKey = sanitizeKey(originalPublicId);
+
+              const newFile = {
+                id: originalPublicId,
+                name: result.info.original_filename,
+                url: result.info.secure_url,
+                type: result.info.resource_type,
+                size: result.info.bytes,
+                format: result.info.format,
+                timestamp: Date.now()
+              };
+
+              // ✅ Get the CURRENT noteId from the DOM or a ref
+              const currentNoteId = document.querySelector('[data-current-note-id]')?.getAttribute('data-current-note-id');
+
+              if (!currentNoteId) {
+                setFileError('No active note selected');
+                setIsUploading(false);
+                return;
+              }
+
+              const currentNoteRef = ref(database, `notes/${currentNoteId}`);
+
+              setFiles(prevFiles => {
+                const mergedFiles = {
+                  ...prevFiles,
+                  [sanitizedKey]: newFile
+                };
+
+                // Defer Firebase update to prevent render conflicts
+                setTimeout(() => {
+                  update(currentNoteRef, { files: mergedFiles })
+                    .then(() => {
+                      setIsUploading(false);
+                    })
+                    .catch(err => {
+                      console.error("Firebase update error:", err);
+                      setFileError('Failed to save file reference');
+                      setIsUploading(false);
+                    });
+                }, 0);
+
+                return mergedFiles;
+              });
+
+              setIsUploading(false);
+            }
+            else if (error) {
+              setFileError(error.message || 'Upload failed');
+              setIsUploading(false);
+            }
+            else if (result && result.event === "close") {
+              setIsUploading(false);
+            }
+            else if (result && result.event === "queues-start") {
+              setIsUploading(true);
+            }
+          }
+        );
+        setCloudinaryWidget(widget);
+      };
+
+      document.body.appendChild(script);
+      return () => document.body.removeChild(script);
+    }
+  }, [sanitizeKey, noteRef]); // Only include sanitizeKey and noteRef
 
   const toggleTheme = useCallback(() => {
     setTheme(prev => prev === 'dark' ? 'light' : 'dark');
@@ -544,8 +787,108 @@ function CodeEditor({ noteId }) {
     }
   }, []);
 
+  const deleteFile = useCallback(async (file) => {
+    try {
+      // Call API to delete from Cloudinary using original ID
+      const response = await fetch('/api/cloudinary/delete', {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ public_id: file.id })
+      });
+
+      if (!response.ok) {
+        throw new Error('Failed to delete file from Cloudinary');
+      }
+
+      // Update Firebase using fresh reference
+      const sanitizedKey = sanitizeKey(file.id);
+      const updatedFiles = { ...files };
+      delete updatedFiles[sanitizedKey];
+
+      // Create fresh reference using current noteId
+      const currentNoteRef = ref(database, `notes/${noteId}`);
+      await update(currentNoteRef, { files: updatedFiles });
+
+      // Remove from selected files if present
+      setSelectedFiles(prev => prev.filter(id => id !== sanitizedKey));
+    } catch (error) {
+      setFileError(error.message);
+      setTimeout(() => setFileError(''), 3000);
+    }
+  }, [files, noteId, sanitizeKey]); // Use noteId instead of noteRef
+
+  const deleteSelectedFiles = useCallback(async () => {
+    try {
+      // Delete all selected files from Cloudinary
+      await Promise.all(
+        selectedFiles.map(sanitizedKey => {
+          const file = files[sanitizedKey];
+          return fetch('/api/cloudinary/delete', {
+            method: 'DELETE',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ public_id: file.id })
+          });
+        })
+      );
+
+      // Update Firebase
+      const updatedFiles = { ...files };
+      selectedFiles.forEach(sanitizedKey => {
+        delete updatedFiles[sanitizedKey];
+      });
+
+      // Create fresh reference using current noteId
+      const currentNoteRef = ref(database, `notes/${noteId}`);
+      await update(currentNoteRef, { files: updatedFiles });
+      setFiles(updatedFiles);
+      setSelectedFiles([]);
+    } catch (error) {
+      setFileError('Failed to delete selected files');
+      setTimeout(() => setFileError(''), 3000);
+    }
+  }, [selectedFiles, files, noteId]);
+
+  const toggleFileSelection = (sanitizedKey) => {
+    setSelectedFiles(prev =>
+      prev.includes(sanitizedKey)
+        ? prev.filter(id => id !== sanitizedKey)
+        : [...prev, sanitizedKey]
+    );
+  };
+
+  const getFileIcon = (type, format) => {
+    if (type === 'image') return <Image className="w-4 h-4" />;
+    if (type === 'video') return <File className="w-4 h-4" />;
+    if (format === 'pdf') return <FileText className="w-4 h-4" />;
+    if (['js', 'jsx', 'ts', 'tsx', 'html', 'css', 'json'].includes(format))
+      return <FileCode className="w-4 h-4" />;
+    return <FileIcon className="w-4 h-4" />;
+  };
+
+  const formatFileSize = (bytes) => {
+    if (bytes === 0) return '0 Bytes';
+    const k = 1024;
+    const sizes = ['Bytes', 'KB', 'MB', 'GB'];
+    const i = Math.floor(Math.log(bytes) / Math.log(k));
+    return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
+  };
+
+  const toggleSelectAll = () => {
+    if (selectedFiles.length === Object.keys(files).length) {
+      setSelectedFiles([]);
+    } else {
+      setSelectedFiles(Object.keys(files));
+    }
+  };
+
+
+  const fileArray = Object.values(files);
+
   return (
-    <div className={`flex flex-col h-full transition-colors duration-500 ease-in-out ${theme === 'dark' ? 'bg-[#1e1e1e]' : 'bg-[#f0f4f8]'}`}>
+    <div
+      className={`flex flex-col h-full transition-colors duration-500 ease-in-out ${theme === 'dark' ? 'bg-[#1e1e1e]' : 'bg-[#f0f4f8]'}`}
+      data-current-note-id={noteId}
+    >
       {/* Header */}
       <div className={`p-3 flex flex-col md:flex-row justify-between items-start md:items-center gap-3 transition-colors duration-500 ease-in-out ${theme === 'dark' ? 'bg-[#232526]' : 'bg-[#e2e8f0]'}`}>
         <div className="flex items-center gap-2">
@@ -637,6 +980,147 @@ function CodeEditor({ noteId }) {
           ref={editorContainerRef}
           className={`h-full transition-colors duration-500 ease-in-out ${theme === 'dark' ? 'bg-[#1e1e1e]' : 'bg-white'}`}
         />
+      </div>
+
+      {/* File Manager */}
+      <div className={`border-t transition-colors duration-500 ${theme === 'dark' ? 'border-gray-700' : 'border-gray-300'}`}>
+        <div className={`p-3 flex items-center justify-between cursor-pointer ${theme === 'dark' ? 'bg-[#252526]' : 'bg-gray-100'}`}
+          onClick={() => setIsFileManagerOpen(!isFileManagerOpen)}>
+          <div className="flex items-center gap-2">
+            <File className={`w-5 h-5 ${theme === 'dark' ? 'text-gray-400' : 'text-gray-600'}`} />
+            <span className={`font-medium ${theme === 'dark' ? 'text-gray-300' : 'text-gray-700'}`}>
+              Files ({fileArray.length})
+            </span>
+          </div>
+          <div className="flex items-center gap-2">
+            {isUploading && (
+              <Loader2 className={`w-4 h-4 animate-spin ${theme === 'dark' ? 'text-blue-400' : 'text-blue-600'}`} />
+            )}
+            <motion.button
+              whileHover={{ scale: 1.05 }}
+              whileTap={{ scale: 0.95 }}
+              onClick={(e) => {
+                e.stopPropagation();
+                cloudinaryWidget?.open();
+              }}
+              className={`p-2 rounded-md flex items-center gap-1 text-sm ${theme === 'dark'
+                ? 'bg-blue-700 hover:bg-blue-600 text-white'
+                : 'bg-blue-600 hover:bg-blue-500 text-white'}`}
+            >
+              <Upload className="w-4 h-4" />
+              <span>Add Files</span>
+            </motion.button>
+            <motion.div
+              animate={{ rotate: isFileManagerOpen ? 180 : 0 }}
+              transition={{ duration: 0.2 }}
+            >
+              <ChevronLeft className={`w-5 h-5 ${theme === 'dark' ? 'text-gray-400' : 'text-gray-600'}`} />
+            </motion.div>
+          </div>
+        </div>
+
+        <AnimatePresence>
+          {isFileManagerOpen && (
+            <motion.div
+              initial={{ height: 0, opacity: 0 }}
+              animate={{ height: 'auto', opacity: 1 }}
+              exit={{ height: 0, opacity: 0 }}
+              className={`overflow-hidden ${theme === 'dark' ? 'bg-[#1f1f1f]' : 'bg-gray-50'}`}
+            >
+              <div className="p-3 max-h-60 overflow-y-auto">
+                {selectedFiles.length > 0 && (
+                  <div className="mb-3 flex justify-between">
+                    <span className={theme === 'dark' ? 'text-gray-300' : 'text-gray-700'}>
+                      {selectedFiles.length} selected
+                    </span>
+                    <button
+                      onClick={deleteSelectedFiles}
+                      className={`flex items-center gap-1 px-3 py-1 rounded text-sm ${theme === 'dark'
+                        ? 'bg-red-800 hover:bg-red-700 text-red-100'
+                        : 'bg-red-500 hover:bg-red-600 text-white'
+                        }`}
+                    >
+                      <Trash2 className="w-4 h-4" />
+                      <span>Delete Selected</span>
+                    </button>
+                  </div>
+                )}
+
+                {fileArray.length === 0 ? (
+                  <div className={`text-center py-4 ${theme === 'dark' ? 'text-gray-500' : 'text-gray-400'}`}>
+                    No files attached to this code
+                  </div>
+                ) : (
+                  <div className="space-y-2">
+                    {fileArray.map(file => (
+                      <div
+                        key={file.id}
+                        className={`p-3 rounded-md flex items-center justify-between ${theme === 'dark'
+                          ? selectedFiles.includes(file.id) ? 'bg-blue-900/30' : 'bg-[#2d2d2d]'
+                          : selectedFiles.includes(file.id) ? 'bg-blue-100' : 'bg-white border'
+                          }`}
+                        onClick={() => toggleFileSelection(file.id)}
+                      >
+                        <div className="flex items-center gap-3">
+                          <div className={`p-2 rounded-md ${theme === 'dark' ? 'bg-[#3a3a3a]' : 'bg-gray-100'}`}>
+                            {getFileIcon(file.type, file.format)}
+                          </div>
+                          <div className="flex-1 min-w-0">
+                            <div className={`font-medium truncate ${theme === 'dark' ? 'text-gray-200' : 'text-gray-800'}`}>
+                              {file.name}
+                            </div>
+                            <div className="flex gap-3 text-xs">
+                              <span className={theme === 'dark' ? 'text-gray-500' : 'text-gray-500'}>
+                                {file.format.toUpperCase()}
+                              </span>
+                              <span className={theme === 'dark' ? 'text-gray-500' : 'text-gray-500'}>
+                                {formatFileSize(file.size)}
+                              </span>
+                            </div>
+                          </div>
+                        </div>
+                        <div className="flex gap-2">
+                          <a
+                            href={file.url.replace("/upload/", "/upload/fl_attachment/")}
+                            download={file.url.substring(file.url.lastIndexOf("/") + 1)}
+                            className={`p-2 rounded-md ${theme === "dark" ? "hover:bg-[#3a3a3a]" : "hover:bg-gray-100"
+                              }`}
+                            title="Download"
+                            onClick={(e) => e.stopPropagation()}
+                          >
+                            <Download className="w-4 h-4" />
+                          </a>
+
+
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              deleteFile(file);
+                            }}
+                            className={`p-2 rounded-md ${theme === 'dark' ? 'hover:bg-red-900/50' : 'hover:bg-red-100'}`}
+                            title="Delete"
+                          >
+                            <Trash2 className="w-4 h-4 text-red-500" />
+                          </button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                {fileError && (
+                  <motion.div
+                    initial={{ opacity: 0, y: 10 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    className={`mt-3 p-2 text-sm text-center rounded-md ${theme === 'dark' ? 'bg-red-900/30 text-red-400' : 'bg-red-100 text-red-600'}`}
+                  >
+                    {fileError}
+                  </motion.div>
+                )}
+              </div>
+            </motion.div>
+          )}
+        </AnimatePresence>
       </div>
 
       {/* Footer */}
