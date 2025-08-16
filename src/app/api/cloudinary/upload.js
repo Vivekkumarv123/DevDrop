@@ -15,6 +15,8 @@ export default async function handler(req, res) {
 
     const result = await cloudinary.uploader.upload(file, {
       folder: 'devdrop_files',
+       resource_type: fileType === 'pdf' ? 'raw' : 'auto',
+      type: 'upload',
       access_control: [
         {
           access_type: 'public' 
