@@ -544,6 +544,8 @@ function CodeEditor({ noteId }) {
   const [selectedFiles, setSelectedFiles] = useState([]);
 
   const noteRef = useMemo(() => ref(database, `notes/${noteId}`), [noteId]);
+  const saveTimeoutRef = useRef(null);
+  const lastContentRef = useRef('');
 
   const editorExtensions = useMemo(() => [
     lineNumbers(),
@@ -558,15 +560,25 @@ function CodeEditor({ noteId }) {
         setCharCount(content.length);
 
         if (!isRemoteUpdate) {
+          // Store content for comparison
+          lastContentRef.current = content;
+          
+          // Clear existing timeout
+          if (saveTimeoutRef.current) {
+            clearTimeout(saveTimeoutRef.current);
+            setIsSaving(false);
+          }
+
+          // Set saving state
           setIsSaving(true);
 
-          // ✅ Defer Firebase update to prevent render conflicts
-          setTimeout(() => {
+          // Debounce: only save after user stops typing for 800ms
+          saveTimeoutRef.current = setTimeout(() => {
             update(noteRef, { content, lastModified: Date.now() })
               .then(() => setIsConnected(true))
               .catch(() => setIsConnected(false))
-              .finally(() => setTimeout(() => setIsSaving(false), 300));
-          }, 0);
+              .finally(() => setIsSaving(false));
+          }, 800);
         }
       }
     }),
@@ -657,6 +669,10 @@ function CodeEditor({ noteId }) {
       isMounted = false;
       if (view) view.destroy();
       if (unsubscribe) unsubscribe();
+      // Clear any pending save
+      if (saveTimeoutRef.current) {
+        clearTimeout(saveTimeoutRef.current);
+      }
     };
   }, [noteId, theme, editorExtensions, noteRef]);
 

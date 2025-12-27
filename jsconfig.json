@@ -1,5 +1,6 @@
 {
   "compilerOptions": {
+    "ignoreDeprecations": "6.0",
     "baseUrl": ".",             // ✅ Required for "paths" to work
     "paths": {
       "@/*": ["src/*"]          // ✅ Resolves "@/..." to "./src/..."
